@@ -1,0 +1,923 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+
+```{r}
+# install.packages("tidyverse")
+# install.packages("readxl")
+# install.packages("psych")
+# install.packages("gridExtra")
+
+library(psych)
+library(scales)
+library(gridExtra)
+library(tidyverse)
+library(readxl)
+library(knitr)
+```
+
+Read data
+``` {r}
+CallCentreUrl <- "data/callcentre_06.xlsx"
+HRMUrl <- "data/HRM_06.xlsx"
+CallCentreData <- read_excel(CallCentreUrl)
+HRMData <- read_excel(HRMUrl)
+```
+
+CallCentre data description
+``` {r}
+str(CallCentreData)
+```
+
+CallCentre data summary
+``` {r}
+summary(CallCentreData)
+```
+
+HRM data description
+``` {r}
+str(HRMData)
+```
+
+HRM data summary
+``` {r}
+summary(HRMData)
+```
+
+Number of call by time
+
+``` {r}
+CallCentreData %>% count(time)
+```
+``` {r}
+ options(scipen = 3)
+CallCentreData %>% 
+    count(time) %>%
+    mutate(percentage = n / sum(n) * 100)
+```
+
+```{r}
+CallCentreData %>% count(time) %>% 
+  ggplot(. , aes(x = time, y = n ))  + 
+  geom_bar( stat="identity", position=position_dodge(),
+            fill="#4126de", color="#e9ecef", alpha=0.9) +
+            ylab("Number of call") + 
+            xlab("Time of the day (in hours)") +
+            geom_text(aes(label=n),
+                             vjust= - 0.5,
+                             position = position_dodge(0.9),
+                             size=2.5) +
+            ggtitle("Number Of Call By Time") +
+            theme_minimal()
+```
+
+Average duration of the call by time
+``` {r}
+CallCentreData %>% group_by(time) %>% summarise(mean = mean(length, na.rm = TRUE))
+```
+``` {r}
+CallCentreData %>% group_by(time) %>% summarise(mean = round(mean(length, na.rm = TRUE))) %>% 
+  ggplot(. , aes(x = time, y = mean ))  + 
+  geom_bar( stat="identity", position=position_dodge(),
+            fill="#69b3a2", color="#e9ecef", alpha=0.9) +
+            ylab("Average length of time") + 
+            xlab("Time of the day (in hours)") +
+            geom_text(aes(label= mean),
+                             vjust= - 0.5,
+                             position = position_dodge(0.9),
+                             size=2.5) +
+            geom_hline(yintercept = mean(CallCentreData$length), color="#fc0303") +
+            geom_text(aes(y= mean(CallCentreData$length), x= 1),
+                      label= paste("Average of all time:", round(mean(CallCentreData$length))),
+                      hjust= 0, vjust= -1, size= 3.5)+ 
+            ggtitle("Average Length Of Time Of The Call By Time") +
+            theme_minimal() 
+```
+% of problem
+``` {r}
+CallCentreData %>% 
+                  count(problem)  %>%
+                  mutate(percentage= n/sum(n)*100) %>%
+                  arrange(desc(n))
+```
+
+``` {r}
+CallCentreData %>% 
+                  count(problem)  %>%
+                  mutate(percentage= n/sum(n)*100) %>%
+                  mutate(percentage= round(percentage, 1)) %>%
+                  mutate(labels=  paste(problem, " (", percentage, "%)", sep = "" )) -> problemPie
+
+library(RColorBrewer)
+myPalette <- brewer.pal(5, "Set2") 
+pie(problemPie$n , labels = problemPie$labels, border="white", col=myPalette,
+    main = "Percentage Of Problem")
+
+```
+% of forward
+``` {r}
+CallCentreData %>% 
+                  mutate(forwarded = recode(forwarded, "forwarded" = "forwarded", "NA" = "not forwarded")) %>%
+                  count(forwarded)  %>%
+                  mutate(percentage= n/sum(n)*100)
+```
+``` {r}
+CallCentreData %>% 
+                  mutate(forwarded = recode(forwarded, "forwarded" = "forwarded", "NA" = "not forwarded")) %>%
+                  count(forwarded)  %>%
+                  mutate(percentage= n/sum(n)*100) %>%
+                  mutate(yposition = cumsum(percentage)- 0.5*percentage ) %>%
+                  mutate(percentage= round(percentage, 1)) %>%
+  
+ggplot(., aes(x="", y= percentage, fill= forwarded)) +
+        geom_bar(stat="identity", width=1, color="white") +
+        coord_polar("y", start=0) +
+        theme_void(base_size = 13) + theme(legend.position = "none") +
+        ggtitle("Percentage Forwarded") +
+        geom_text(aes(y = yposition, label = paste(forwarded, "\n", n, " (", percentage, "%)", sep = "")),
+                  color = "white", size= 4) +
+        scale_fill_brewer(palette="Set1")
+```
+forward by time
+``` {r}
+CallCentreData %>% 
+  mutate(forwarded = recode(forwarded, "forwarded" = "forwarded", "NA" = "not forwarded")) %>%                
+  count(time, forwarded) %>% spread(forwarded, n) %>%
+  replace_na(list("forwarded" = 0, "not forwarded" = 0))
+```
+``` {r}
+CallCentreData %>% 
+  mutate(forwarded = recode(forwarded, "forwarded" = "forwarded", "NA" = "not forwarded")) %>%                
+  count(time, forwarded) %>%
+ggplot(., aes(x= time, y= n, fill= forwarded)) +
+        geom_bar(stat="identity") + 
+        theme(legend.title=element_blank()) +
+        ggtitle("Forwarded By Time")+
+        ylab("Average length of time") + 
+        xlab("Time of the day (in hours)")
+
+```
+Overoll satisfaction
+``` {r}
+summary(CallCentreData$customer_satisfaction)
+```
+``` {r}
+boxplot(CallCentreData$customer_satisfaction,
+main = "Satisfaction With The Service",
+xlab = "Customer satisfaction score",
+col = "orange",
+border = "brown",
+horizontal = TRUE,
+notch = TRUE
+)
+```
+
+
+``` {r}
+CallCentreData %>% filter(!is.na(customer_satisfaction)) %>%
+  mutate(satisfaction_group = ifelse(customer_satisfaction < 5, "Low",
+                                     ifelse(customer_satisfaction < 8, "Middle", "Hight")) ) %>%
+  count(satisfaction_group) %>% 
+  mutate(percentage= n/sum(n)*100)
+  
+```
+```{r}
+ 
+CallCentreData %>% filter(!is.na(customer_satisfaction)) %>%
+  mutate(satisfaction_group = ifelse(customer_satisfaction < 5, "Low",
+                                     ifelse(customer_satisfaction < 8, "Middle", "Hight")) ) %>%
+  count(satisfaction_group) %>% 
+  mutate(percentage= n/sum(n)*100)
+
+
+
+```
+
+
+
+```{r}
+CallCentreData %>% 
+                  group_by(customer_satisfaction)  %>%
+                  count()
+```
+``` {r}
+CallCentreData %>% count(customer_satisfaction) %>% 
+  ggplot(. , aes(x = customer_satisfaction, y = n ))  + 
+  geom_bar( stat="identity", position=position_dodge(), alpha=0.9) +
+            ylab("Number of call") + 
+            xlab("Customer satisfaction score") +
+            geom_text(aes(label=n),
+                             vjust= - 0.5,
+                             position = position_dodge(0.9),
+                             size=2.5) +
+            ggtitle("Satisfaction With The Service") +
+            theme_minimal()
+```
+
+satisfaction by duration
+```{r}
+CallCentreData %>% 
+                  group_by(customer_satisfaction)  %>%
+                  summarise(mean_length = mean(length),
+                            mean_waiting = mean(waiting))
+```
+
+```{r}
+ggplot(CallCentreData, aes(y= length, x = customer_satisfaction)) + 
+    geom_point(aes(color = "blue"), alpha = 0.8) + 
+    geom_smooth(formula = y~x, method="lm") + 
+    ggtitle("Satisfaction By Duration Of The Call") +
+    xlab("Customer satisfaction score") + 
+    ylab("Duration of the call") +
+    theme_bw(base_size =  12) + theme(legend.position = "none") 
+```
+
+
+``` {r}
+ggplot( CallCentreData, aes(y= as_factor(customer_satisfaction), fill= as_factor(customer_satisfaction), x= length)) +
+  geom_boxplot()  +
+  ggtitle("Satisfaction By Duration Of The Call") +
+  xlab("Duration of the call") + 
+  ylab("Customer satisfaction score") +
+  theme(legend.position = "none") 
+```
+
+satisfaction by waiting
+
+```{r}
+ggplot(CallCentreData, aes(y= waiting, x = customer_satisfaction)) + 
+    geom_point(aes(color = "blue"), alpha = 0.8) + 
+    geom_smooth(formula = y~x, method="lm") + 
+    ggtitle("Satisfaction By Waiting Time") +
+    xlab("Customer satisfaction score") + 
+    ylab("Waiting time") +
+    theme_bw(base_size =  12) + theme(legend.position = "none") 
+```
+``` {r}
+ggplot( CallCentreData, aes(y= as_factor(customer_satisfaction), fill= as_factor(customer_satisfaction), x= waiting)) +
+  geom_boxplot()  +
+  ggtitle("Satisfaction By Waiting Time") +
+  xlab("Waiting time") + 
+  ylab("Customer satisfaction score") +
+  theme(legend.position = "none") 
+```
+satisfaction by problem
+``` {r}
+CallCentreData %>% 
+                  group_by(problem)  %>%
+                  summarise(
+                            Min = min(customer_satisfaction, na.rm = TRUE),
+                            "1st Quantile" = quantile(customer_satisfaction, probs = c(0.25), na.rm = TRUE),
+                            Median = median(customer_satisfaction, na.rm = TRUE),
+                            Mean = mean(customer_satisfaction, na.rm = TRUE),
+                            "3st Quantile" = quantile(customer_satisfaction, probs = c(0.75), na.rm = TRUE),
+                            Max = max(customer_satisfaction, na.rm = TRUE),
+                            Missing = sum(is.na(customer_satisfaction))
+)
+```
+
+``` {r}
+ggplot( CallCentreData, aes(y= problem, fill=problem, x= customer_satisfaction)) +
+  geom_boxplot()  +
+  ggtitle("Satisfaction By Problem") +
+  ylab("") + 
+  xlab("Customer satisfaction score") + 
+  theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+waiting time
+```{r}
+summary(CallCentreData$waiting)
+```
+
+``` {r}
+boxplot(CallCentreData$waiting,
+main = "Waiting time",
+xlab = "Waiting time in second",
+col = "orange",
+border = "brown",
+horizontal = TRUE,
+notch = TRUE
+)
+```
+
+``` {r}
+CallCentreData %>% filter(!is.na(waiting)) %>%
+  mutate(waiting_group = ifelse(waiting < 60, "< 60s",
+                                     ifelse(waiting <= 120, "60s - 120s", "> 120s")) ) %>%
+  count(waiting_group) %>% 
+  mutate(percentage= n/sum(n)*100)
+  
+```
+
+agent performance by munber of call
+
+``` {r}
+CallCentreData %>% 
+                  count(agent)  %>%
+                  arrange(desc(n))
+```
+``` {r}
+CallCentreData %>% 
+                  count(agent)  %>%
+                  mutate(agent = paste("Agent", agent)) %>%
+                  arrange(desc(n)) %>% head(10) %>% 
+                  mutate(agent = fct_reorder(agent, n)) %>%
+  ggplot(., aes(x = n, y = agent)) +
+  geom_segment( aes(x= 0, xend= n, y= agent, yend= agent), color="blue") +
+  geom_point( color="green", size=4) +
+  theme_light() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  xlab("") + xlim(0, 2500) +
+  ylab("") + ggtitle("Top 10") -> Top10byCall
+
+CallCentreData %>% 
+                  count(agent)  %>%
+                  mutate(agent = paste("Agent", agent)) %>%
+                  arrange(desc(n)) %>% tail(10) %>% 
+                  mutate(agent = fct_reorder(agent, n)) %>%
+  ggplot(., aes(x = n, y = agent)) +
+  geom_segment( aes(x= 0, xend= n, y= agent, yend= agent), color="red") +
+  geom_point( color="red", size=4) +
+  theme_light() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  xlab("") + xlim(0, 2500) +
+  ylab("") + ggtitle("Bottom 10")  -> Tail10byCall
+
+grid.arrange(Top10byCall, Tail10byCall, nrow= 1, ncol = 2, 
+             top = "Agent Ranking By Number Of Call")
+```
+agent performance by sum duration of the call
+``` {r}
+CallCentreData %>% 
+                  group_by(agent)  %>%
+                  summarise("Sum_length" = sum(length, na.rm = TRUE)) %>%
+                  arrange(desc(Sum_length))
+```
+``` {r}
+CallCentreData %>% 
+                  group_by(agent)  %>%
+                  summarise(n = sum(length, na.rm = TRUE)) %>%
+                  mutate(agent = paste("Agent", agent)) %>%
+                  arrange(desc(n)) %>% mutate(agent = fct_reorder(agent, n)) %>%
+                  head(10) %>%
+  ggplot(., aes(x = n, y = agent)) +
+  geom_segment( aes(x= 0, xend= n, y= agent, yend= agent), color="blue") +
+  geom_point( color="green", size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+  ) +
+  xlab("") + ggtitle("Top 10") + scale_x_continuous(labels = number, limits= c(0, 800000) ) +
+  ylab("") -> Top10byDuration
+
+CallCentreData %>% 
+                  group_by(agent)  %>%
+                  summarise(n = sum(length, na.rm = TRUE)) %>%
+                  mutate(agent = paste("Agent", agent)) %>%
+                  arrange(desc(n)) %>% mutate(agent = fct_reorder(agent, n)) %>%
+                  tail(10) %>%
+  ggplot(., aes(x = n, y = agent)) +
+  geom_segment( aes(x= 0, xend= n, y= agent, yend= agent), color="red") +
+  geom_point( color="red", size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+  ) +
+  xlab("") + ggtitle("Bottom 10") + scale_x_continuous(labels = number, limits= c(0, 800000) ) +
+  ylab("")  -> Tail10byDuration
+
+grid.arrange(Top10byDuration, Tail10byDuration, nrow= 1, ncol = 2, 
+             top = "Agent Ranking By Sum Duration Of The Call")
+```
+
+
+agent performance by satisfaction
+
+``` {r}
+CallCentreData %>% 
+                  group_by(agent)  %>%
+                  summarise("Mean_satisfaction" = mean(customer_satisfaction, na.rm = TRUE)) %>%
+                  arrange(desc(Mean_satisfaction))
+```
+``` {r}
+CallCentreData %>% 
+                  group_by(agent)  %>%
+                  summarise(n = mean(customer_satisfaction, na.rm = TRUE)) %>%
+                  mutate(agent = paste("Agent", agent)) %>%
+                  arrange(desc(n)) %>% mutate(agent = fct_reorder(agent, n)) %>%
+                  head(10) %>%
+  ggplot(., aes(x = n, y = agent)) +
+  geom_segment( aes(x= 0, xend= n, y= agent, yend= agent), color="blue") +
+  geom_point( color="green", size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+  ) +
+  xlab("") + ggtitle("Top 10") + scale_x_continuous(labels = number, limits= c(0, 10) ) +
+  ylab("") -> Top10bySatisfaction
+
+CallCentreData %>% 
+                  group_by(agent)  %>%
+                  summarise(n = mean(customer_satisfaction, na.rm = TRUE)) %>%
+                  mutate(agent = paste("Agent", agent)) %>%
+                  arrange(desc(n)) %>% mutate(agent = fct_reorder(agent, n)) %>%
+                  tail(10) %>%
+  ggplot(., aes(x = n, y = agent)) +
+  geom_segment( aes(x= 0, xend= n, y= agent, yend= agent), color="red") +
+  geom_point( color="red", size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+  ) +
+  xlab("") + ggtitle("Bottom 10") + scale_x_continuous(labels = number, limits= c(0, 10) ) +
+  ylab("")  -> Tail10bySatisfaction
+
+grid.arrange(Top10bySatisfaction, Tail10bySatisfaction, nrow= 1, ncol = 2, 
+             top = "Agent Ranking By Customer Satisfaction")
+```
+
+agent performance by waiting time
+``` {r}
+CallCentreData %>% 
+                  group_by(agent)  %>%
+                  summarise("Mean_waiting" = mean(waiting, na.rm = TRUE)) %>%
+                  arrange(desc(Mean_waiting))
+```
+``` {r}
+CallCentreData %>% 
+                  group_by(agent)  %>%
+                  summarise(n = mean(waiting, na.rm = TRUE)) %>%
+                  mutate(agent = paste("Agent", agent)) %>%
+                  arrange(desc(n)) %>% mutate(agent = fct_reorder(agent, desc(n))) %>%
+                  head(10) %>%
+  ggplot(., aes(x = n, y = agent)) +
+  geom_segment( aes(x= 0, xend= n, y= agent, yend= agent), color="red") +
+  geom_point( color="red", size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+  ) +
+  xlab("") + ggtitle("Top 10") + scale_x_continuous(labels = number, limits= c(0, 60) ) +
+  ylab("") -> Tail10byWaiting
+
+CallCentreData %>% 
+                  group_by(agent)  %>%
+                  summarise(n = mean(waiting, na.rm = TRUE)) %>%
+                  mutate(agent = paste("Agent", agent)) %>%
+                  arrange(desc(n)) %>% mutate(agent = fct_reorder(agent, desc(n))) %>%
+                  tail(10) %>%
+  ggplot(., aes(x = n, y = agent)) +
+  geom_segment( aes(x= 0, xend= n, y= agent, yend= agent), color="blue") +
+  geom_point( color="green", size=4) +
+  theme_light() +
+  theme(
+    panel.border = element_blank(),
+  ) +
+  xlab("") + ggtitle("Bottom 10") + scale_x_continuous(labels = number, limits= c(0, 60) ) +
+  ylab("")  -> Top10byWaiting
+
+grid.arrange(Top10byWaiting, Tail10byWaiting, nrow= 1, ncol = 2, 
+             top = "Agent Ranking By Waiting Time")
+```
+
+agent by problem
+``` {r}
+CallCentreData %>% 
+                  group_by(agent, problem)  %>%
+                  count(problem)%>%
+                  spread(problem, n)
+```
+allocation of agent by gender
+``` {r}
+HRMData %>% 
+           count(gender)  %>%
+           mutate(percentage= n/sum(n)*100)
+```
+
+
+``` {r}
+HRMData %>% 
+           filter(!is.na(gender)) %>%         
+           count(gender)  %>%
+           arrange(desc(n)) %>%
+           mutate(percentage= n/sum(n)*100) %>%
+           mutate(yposition = cumsum(percentage)- 0.5*percentage ) %>%
+           mutate(percentage= round(percentage, 1)) %>%
+  
+ggplot(., aes(x="", y= percentage, fill= gender)) +
+        geom_bar(stat="identity", width=1, color="white") +
+        coord_polar("y", start=0) +
+        theme_void(base_size = 13) + theme(legend.position = "none") +
+        ggtitle("Percentage Gender") +
+        geom_text(aes(y = yposition, label = paste(gender, "\n", n, " (", percentage, "%)", sep = "")),
+                  color = "white", size= 4) 
+```
+agent by tenure
+``` {r}
+summary(HRMData$tenure)
+```
+
+``` {r}
+# color=group, fill=group
+ggplot(HRMData, aes(x=tenure)) +
+    geom_histogram(aes(y=..density..), fill="#999999", bins=20, position="identity", alpha=0.7)+
+    geom_density(alpha=0.6, color="darkblue", fill="lightblue")+
+    labs(title="Distribution Of Agent Tenure",x="Number of months", y = "Density")+  
+    theme_classic(base_size = 14) +
+    geom_vline(xintercept = mean(HRMData$tenure), color="#fc0303") +
+    geom_text(aes(y= 0, x= mean(tenure)),
+                      label= paste("Mean:", round(mean(HRMData$tenure))),
+                      hjust= -0.1 , vjust= 0, size= 3.5)
+
+```
+
+
+agent by qualification
+
+``` {r}
+HRMData %>%
+  count(qualification) %>%
+  arrange(desc(n))
+```
+``` {r}
+HRMData %>% 
+           filter(qualification != "NA") %>%         
+           count(qualification)  %>%
+           arrange(desc(n)) %>%
+           mutate(percentage= n/sum(n)*100) %>%
+           mutate(yposition = cumsum(percentage)- 0.5*percentage ) %>%
+           mutate(percentage= round(percentage, 1)) %>%
+  
+ggplot(., aes(x="", y= percentage, fill= qualification)) +
+        geom_bar(stat="identity", width=1, color="white") +
+        coord_polar("y", start=0) +
+        theme_void(base_size = 10) + theme(legend.position = "none") +
+        ggtitle("Percentage Of Education Degree") +
+        geom_text(aes(y = yposition, label = paste(qualification, "\n", n, " (", percentage, "%)", sep = "")),
+                  color = "white", size= 4) 
+```
+
+agent by ethnicity 
+``` {r}
+HRMData %>%
+  count(ethnicity) %>%
+  arrange(desc(n))
+```
+
+``` {r}
+HRMData %>% 
+           filter(!is.na(ethnicity)) %>%         
+           count(ethnicity)  %>%
+           arrange(desc(n)) %>%
+           mutate(percentage= n/sum(n)*100) %>%
+           mutate(yposition = cumsum(percentage)- 0.5*percentage ) %>%
+           mutate(percentage= round(percentage, 1)) %>%
+  
+ggplot(., aes(x="", y= percentage, fill= ethnicity)) +
+        geom_bar(stat="identity", width=1, color="white") +
+        coord_polar("y", start=0) +
+        theme_void(base_size = 10) + theme(legend.position = "none") +
+        ggtitle("Percentage Of Employee’s Ethnic") +
+        geom_text(aes(y = yposition, label = paste(ethnicity, "\n", n, " (", percentage, "%)", sep = "")),
+                  color = "white", size= 4) 
+```
+
+Combine Data
+``` {r}
+CallCentreData$agent <- as.numeric(CallCentreData$agent)
+HRMData$agent <- as.numeric(HRMData$agent)
+CombineData <- left_join(CallCentreData, HRMData, by = "agent")
+```
+
+satisfaction by gender
+``` {r}
+CombineData %>% 
+                  group_by(gender)  %>%
+                  summarise(
+                            Count = n(),        
+                            Min = min(customer_satisfaction, na.rm = TRUE),
+                            "1st Quantile" = quantile(customer_satisfaction, probs = c(0.25), na.rm = TRUE),
+                            Median = median(customer_satisfaction, na.rm = TRUE),
+                            Mean = mean(customer_satisfaction, na.rm = TRUE),
+                            "3st Quantile" = quantile(customer_satisfaction, probs = c(0.75), na.rm = TRUE),
+                            Max = max(customer_satisfaction, na.rm = TRUE),
+                            Missing = sum(is.na(customer_satisfaction))
+)
+```
+``` {r}
+CombineData %>% filter(!is.na(gender)) %>% filter(gender != "NA") %>%
+  ggplot( ., aes(y= gender, fill=gender, x= customer_satisfaction)) +
+  geom_boxplot()  +
+  ggtitle("Satisfaction By Sex") +
+  ylab("Sex") + 
+  xlab("Satisfaction") + 
+  theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+```{r}
+t.test(data = CombineData, customer_satisfaction ~ gender)
+```
+
+Duration by gender
+``` {r}
+CombineData %>% 
+                  group_by(gender)  %>%
+                  summarise(
+                            Count = n(),        
+                            Min = min(length, na.rm = TRUE),
+                            "1st Quantile" = quantile(length, probs = c(0.25), na.rm = TRUE),
+                            Median = median(length, na.rm = TRUE),
+                            Mean = mean(length, na.rm = TRUE),
+                            "3st Quantile" = quantile(length, probs = c(0.75), na.rm = TRUE),
+                            Max = max(length, na.rm = TRUE),
+                            Missing = sum(is.na(length))
+)
+```
+``` {r}
+CombineData %>% filter(!is.na(gender)) %>% filter(gender != "NA") %>%
+  ggplot( ., aes(y= gender, fill=gender, x= length)) +
+  geom_boxplot()  +
+  ggtitle("Duration By Sex") +
+  ylab("Sex") + 
+  xlab("Duration") + 
+  theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+```{r}
+t.test(data = CombineData, length ~ gender)
+```
+
+Waiting time by gender
+``` {r}
+CombineData %>% 
+                  group_by(gender)  %>%
+                  summarise(
+                            Count = n(),        
+                            Min = min(waiting, na.rm = TRUE),
+                            "1st Quantile" = quantile(waiting, probs = c(0.25), na.rm = TRUE),
+                            Median = median(waiting, na.rm = TRUE),
+                            Mean = mean(waiting, na.rm = TRUE),
+                            "3st Quantile" = quantile(waiting, probs = c(0.75), na.rm = TRUE),
+                            Max = max(waiting, na.rm = TRUE),
+                            Missing = sum(is.na(waiting))
+)
+```
+``` {r}
+CombineData %>% filter(!is.na(gender)) %>% filter(gender != "NA") %>%
+  ggplot( ., aes(y= gender, fill=gender, x= customer_satisfaction)) +
+  geom_boxplot()  +
+  ggtitle("Waiting Time By Sex") +
+  ylab("Sex") + 
+  xlab("Waiting time") + 
+  theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+```{r}
+t.test(data = CombineData, waiting ~ gender)
+```
+
+satisfaction by qualification
+``` {r}
+CombineData %>% 
+                  group_by(qualification)  %>%
+                  summarise(
+                            Count = n(),        
+                            Min = min(customer_satisfaction, na.rm = TRUE),
+                            "1st Quantile" = quantile(customer_satisfaction, probs = c(0.25), na.rm = TRUE),
+                            Median = median(customer_satisfaction, na.rm = TRUE),
+                            Mean = mean(customer_satisfaction, na.rm = TRUE),
+                            "3st Quantile" = quantile(customer_satisfaction, probs = c(0.75), na.rm = TRUE),
+                            Max = max(customer_satisfaction, na.rm = TRUE),
+                            Missing = sum(is.na(customer_satisfaction))
+)
+```
+``` {r}
+CombineData %>% filter(!is.na(qualification)) %>% filter(qualification != "NA") %>%
+  ggplot( ., aes(y= qualification, fill=qualification, x= customer_satisfaction)) +
+  geom_boxplot()  +
+  ggtitle("Satisfaction By Qualification") +
+  ylab("Qualification") + 
+  xlab("Satisfaction") + 
+  theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+```{r}
+CombineData %>% filter(qualification != "NA") %>%
+aov(data = ., customer_satisfaction ~ qualification) %>% summary()
+```
+
+Duration by qualification
+``` {r}
+CombineData %>% 
+                  group_by(qualification)  %>%
+                  summarise(
+                            Count = n(),        
+                            Min = min(length, na.rm = TRUE),
+                            "1st Quantile" = quantile(length, probs = c(0.25), na.rm = TRUE),
+                            Median = median(length, na.rm = TRUE),
+                            Mean = mean(length, na.rm = TRUE),
+                            "3st Quantile" = quantile(length, probs = c(0.75), na.rm = TRUE),
+                            Max = max(length, na.rm = TRUE),
+                            Missing = sum(is.na(length))
+)
+```
+``` {r}
+CombineData %>% filter(!is.na(qualification)) %>% filter(qualification != "NA") %>%
+  ggplot( ., aes(y= qualification, fill=qualification, x= length)) +
+  geom_boxplot()  +
+  ggtitle("Duration By Qualification") +
+  ylab("Qualification") + 
+  xlab("Duration") + 
+  theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+```{r}
+CombineData %>% filter(qualification != "NA") %>%
+aov(data = ., length ~ qualification) %>% summary()
+```
+
+Waiting time by qualification
+``` {r}
+CombineData %>% 
+                  group_by(qualification)  %>%
+                  summarise(
+                            Count = n(),        
+                            Min = min(waiting, na.rm = TRUE),
+                            "1st Quantile" = quantile(waiting, probs = c(0.25), na.rm = TRUE),
+                            Median = median(waiting, na.rm = TRUE),
+                            Mean = mean(waiting, na.rm = TRUE),
+                            "3st Quantile" = quantile(waiting, probs = c(0.75), na.rm = TRUE),
+                            Max = max(waiting, na.rm = TRUE),
+                            Missing = sum(is.na(waiting))
+)
+```
+``` {r}
+CombineData %>% filter(!is.na(qualification)) %>% filter(qualification != "NA") %>%
+  ggplot( ., aes(y= qualification, fill=qualification, x= waiting)) +
+  geom_boxplot()  +
+  ggtitle("Waiting Time By Qualification") +
+  ylab("Qualification") + 
+  xlab("Waiting time") + 
+  theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+
+``` {r}
+CombineData %>% filter(!is.na(qualification)) %>% filter(qualification != "NA") %>%
+  ggplot( ., aes(y= qualification, fill=qualification, x= waiting)) +
+  geom_boxplot()  +
+  ggtitle("Waiting Time By Qualification") +
+  ylab("Qualification") + 
+  xlab("Waiting time") + 
+  theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+```{r}
+CombineData %>% filter(qualification != "NA") %>%
+aov(data = ., waiting ~ qualification) %>% summary()
+```
+satisfaction by ethnicity
+``` {r}
+CombineData %>% 
+                  group_by(ethnicity)  %>%
+                  summarise(
+                            Count = n(),
+                            Min = min(customer_satisfaction, na.rm = TRUE),
+                            "1st Quantile" = quantile(customer_satisfaction, probs = c(0.25), na.rm = TRUE),
+                            Median = median(customer_satisfaction, na.rm = TRUE),
+                            Mean = mean(customer_satisfaction, na.rm = TRUE),
+                            "3st Quantile" = quantile(customer_satisfaction, probs = c(0.75), na.rm = TRUE),
+                            Max = max(customer_satisfaction, na.rm = TRUE),
+                            Missing = sum(is.na(customer_satisfaction))
+)
+```
+``` {r}
+CombineData %>% filter(!is.na(ethnicity)) %>%
+ggplot( ., aes(y= ethnicity, fill=ethnicity, x= length)) +
+  geom_boxplot()  +
+  ggtitle("Satisfaction By Ethnicity") +
+  ylab("Ethnicity") + 
+  xlab("Satisfaction") + 
+  theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+```{r}
+aov(data = CombineData, customer_satisfaction ~ ethnicity) %>% summary()
+```
+
+Duration by ethnicity
+``` {r}
+CombineData %>% 
+                  group_by(ethnicity)  %>%
+                  summarise(
+                            Count = n(),        
+                            Min = min(length, na.rm = TRUE),
+                            "1st Quantile" = quantile(length, probs = c(0.25), na.rm = TRUE),
+                            Median = median(length, na.rm = TRUE),
+                            Mean = mean(length, na.rm = TRUE),
+                            "3st Quantile" = quantile(length, probs = c(0.75), na.rm = TRUE),
+                            Max = max(length, na.rm = TRUE),
+                            Missing = sum(is.na(length))
+)
+```
+``` {r}
+CombineData %>% filter(!is.na(ethnicity)) %>%
+ggplot( ., aes(y= ethnicity, fill=ethnicity, x= length)) +
+  geom_boxplot()  +
+  ggtitle("Duration By Ethnicity") +
+  ylab("Ethnicity") + 
+  xlab("Duration") + 
+  theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+```{r}
+aov(data = CombineData, length ~ ethnicity) %>% summary()
+```
+
+Waiting time by ethnicity
+``` {r}
+CombineData %>% 
+                  group_by(ethnicity)  %>%
+                  summarise(
+                            Count = n(),        
+                            Min = min(waiting, na.rm = TRUE),
+                            "1st Quantile" = quantile(waiting, probs = c(0.25), na.rm = TRUE),
+                            Median = median(waiting, na.rm = TRUE),
+                            Mean = mean(waiting, na.rm = TRUE),
+                            "3st Quantile" = quantile(waiting, probs = c(0.75), na.rm = TRUE),
+                            Max = max(waiting, na.rm = TRUE),
+                            Missing = sum(is.na(waiting))
+)
+```
+``` {r}
+CombineData %>% filter(!is.na(ethnicity)) %>%
+ggplot( ., aes(y= ethnicity, fill=ethnicity, x= waiting)) +
+  geom_boxplot()  +
+  ggtitle("Waiting Time By Ethnicity") +
+  ylab("Ethnicity") + 
+  xlab("Waiting time") + 
+  theme(
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+
+```{r}
+aov(data = CombineData, waiting ~ ethnicity) %>% summary()
+```
+
+
+```{r}
+library(psych)
+options(repr.plot.width = 12, repr.plot.height = 12)
+pairs.panels(CombineData[,c("length", "waiting", "customer_satisfaction", "age", "tenure")], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE # show correlation ellipses
+             )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

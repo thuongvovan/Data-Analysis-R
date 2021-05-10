@@ -1,0 +1,469 @@
+---
+title: "Gender Pay Gap Reporting"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(knitr)
+library(readxl) # Library for read excel file
+library(rlang) # Library for convert string to object
+library(RColorBrewer) # Color palettes for creating beautiful graphics
+library(randomcoloR) # Random color
+library(gridExtra) # Custom layout plot
+library(ggpubr) # Custom layout plot
+library(kableExtra) # Print table
+library(plyr)
+library(tidyverse) # Library for data processing
+options(knitr.kable.NA = '.') # Remove the NA text in table
+```
+
+## 1. Import dataset
+```{r}
+dataUrl <- "data/group_3.xlsx"
+data <- read_excel(dataUrl)
+```
+
+### Standardized data
+- Since the working hours are different, it is obvious that the salary will be different. It is therefore necessary to standardize wages on the same assumption of working time in order to assess the gender pay gap.
+- Some cases bonus is missing value. In practical conditions, it is necessary to verify these data to give the most accurate analysis. In this case, it can be considered that the missing value is 0.
+```{r}
+data %>% mutate(gender = str_to_sentence(gender),
+                position = ifelse(position == ".", NA, position),
+                position = ifelse(position == "assistent", "assistant", position),
+                position = str_to_sentence(position),
+                contractual = if_else(FTE == 1, "Full-time", "Part-time"),
+                office = paste("Office", office),
+                salary_standardized = salary / FTE,
+                bonus = if_else(is.na(bonus), 0, bonus),
+                bonus_standardized = bonus / FTE
+                ) -> data
+```
+### Save standardized data
+```{r}
+write_excel_csv(data, "Data/data_standardized.csv")
+openxlsx::write.xlsx(data, "Data/data_standardized.xlsx")
+```
+
+
+## 2. Descriptive statistic
+### 2.1 Dataset description
+```{r}
+head(data) %>% kbl() %>% kable_paper("hover", full_width = F)
+```
+
+```{r}
+str(data)
+```
+
+```{r}
+summary(data)
+```
+
+### 2.2 Describing single variables
+Function for describing one category variable
+```{r}
+DescribingCategoryVariable <- function(data, varString, colorSet){
+  colorPalette <- brewer.pal(8, colorSet) 
+  varObject = rlang::sym(varString)
+  # Table
+  data %>% 
+        count(!!varObject)  %>%
+        mutate(percentage= n/sum(n)*100) %>%
+        mutate(percentage= round(percentage, 1)) %>%
+        arrange(desc(n))   %>%
+        print(.) -> tableData
+  # Data for pie plot
+  tableData %>% 
+            mutate(labels=  paste(!!varObject, " (", percentage, "%)", sep = "" )) %>%
+            filter(!is.na(!!varObject)) -> pieData
+  # Make pie plot
+  pie(pieData$n , labels = pieData$labels, border="white", col=colorPalette,
+    main = paste("Percentage Of", str_to_sentence(varString)))
+}
+```
+
+Function for describing one continuous variable
+```{r}
+DescribingContinuousVariable <- function(data, varString){
+  varObject = rlang::sym(varString)
+  dataSummary <- summary(data[varString])
+  print(dataSummary)
+  data %>%
+    ggplot(aes(x = !!varObject)) + 
+    geom_boxplot(fill=randomColor(1), alpha=0.5)  + 
+    theme_classic()  + xlab("") + ylab("") -> box
+  data %>% 
+      filter(!is.na(!!varObject)) %>%
+      ggplot(aes(x=!!varObject)) +
+      geom_histogram(aes(y=..density..), fill=randomColor(1, luminosity="dark")) + 
+      geom_density(alpha=0.6) +
+      geom_vline(aes(xintercept= mean(!!varObject)), color="blue", linetype="dashed") +
+      theme_classic() + xlab("") + ylab("") -> his
+  title = str_replace(varString, "_", " ")
+  title = toupper(title)
+  grid.arrange(his, box,  nrow = 2, heights = c(4, 1), 
+               top = text_grob(title, face = "bold", size = 14))
+}
+```
+
+#### Gender description
+```{r}
+DescribingCategoryVariable(data, "gender", "Set1")
+```
+
+#### Qualification description
+```{r}
+DescribingCategoryVariable(data, "qualification", "Set2")
+```
+
+#### Office description
+```{r}
+DescribingCategoryVariable(data, "office", "Set3")
+```
+
+#### Position description
+```{r}
+DescribingCategoryVariable(data, "position", "Set1")
+```
+
+#### Contractual description
+```{r}
+DescribingCategoryVariable(data, "contractual", "Set2")
+```
+
+#### FTE description
+```{r warning=FALSE, message=FALSE}
+DescribingContinuousVariable(data, "FTE")
+```
+
+#### Tenure description
+```{r warning=FALSE, message=FALSE}
+DescribingContinuousVariable(data, "tenure")
+```
+
+#### Salary description
+```{r warning=FALSE, message=FALSE}
+DescribingContinuousVariable(data, "salary")
+```
+
+#### Salary Standardized description
+```{r warning=FALSE, message=FALSE}
+DescribingContinuousVariable(data, "salary_standardized")
+```
+
+#### Bonus description
+```{r warning=FALSE, message=FALSE}
+DescribingContinuousVariable(data, "bonus")
+```
+
+#### Bonus Standardized description
+```{r warning=FALSE, message=FALSE}
+DescribingContinuousVariable(data, "bonus_standardized")
+```
+
+## 3. Gender pay gap
+Remove diverse gender because of this gender too few to compare
+```{r}
+data <- filter(data, gender != "Diverse")
+```
+Function for describe gender pay gap
+```{r}
+GenderPayGapTable <- function(data, pay, by){
+  payObject = rlang::sym(pay)
+  byObject = rlang::sym(by)
+  data %>% 
+    group_by(!!byObject, gender) %>% 
+    summarise(n = n(),
+              min = min(!!payObject),
+              mean = mean(!!payObject), 
+              median = median(!!payObject), 
+              max = max(!!payObject), 
+              .groups = 'drop') %>%
+    pivot_wider(names_from = gender, values_from = c(n, min, mean, median, max)) -> table
+    kbl(table) %>% kable_paper("hover", full_width = F)
+}
+GenderPayGapPlot <- function(data, pay, by){
+  payObject = rlang::sym(pay)
+  byObject = rlang::sym(by)
+  # Plot
+  ggplot(data, aes(x=!!byObject, y=!!payObject, fill=gender)) + 
+    geom_boxplot() + ggtitle(paste("Gender", pay, "gap by", by))
+}
+```
+
+### 3.1 Gender salary gap
+#### Salary by gender
+```{r}
+data %>% 
+    group_by(gender) %>% 
+    summarise(n = n(),
+              min = min(salary_standardized),
+              mean = mean(salary_standardized), 
+              median = median(salary_standardized), 
+              max = max(salary_standardized), 
+              .groups = 'drop') %>%
+    kbl() %>% kable_paper("hover", full_width = F)
+```
+
+```{r}
+ggplot(data, aes(x= salary_standardized, fill=gender)) + 
+    geom_boxplot() + ggtitle(paste("Salary by gender")) +
+    theme(axis.title.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank())
+```
+
+```{r}
+data %>%
+  ggplot(aes(x=salary_standardized, fill=gender)) +
+  geom_density(alpha=0.6) +
+  geom_vline(data= ddply(data, "gender", summarise, grp.mean=mean(salary_standardized)), aes(xintercept=grp.mean, color=gender),
+             linetype="dashed") +
+  ggtitle("Distribution of Salary by Gender") +
+  theme_classic()
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data)
+```
+
+#### Gender salary gap by qualification
+```{r}
+GenderPayGapTable(data, pay = "salary_standardized", by = "qualification")
+GenderPayGapPlot(data, pay = "salary_standardized", by = "qualification")
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$qualification == "Apprenticeship/ some college", ])
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$qualification == "BA/ BSc", ])
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$qualification == "MA/ MSc", ], exact = FALSE)
+```
+
+#### Gender salary gap by position
+```{r}
+GenderPayGapTable(data, pay = "salary_standardized", by = "position")
+GenderPayGapPlot(data, pay = "salary_standardized", by = "position")
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$position == "Junior", ])
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$position == "Senior", ], exact = FALSE)
+```
+
+#### Gender salary gap by office
+```{r}
+GenderPayGapTable(data, pay = "salary_standardized", by = "office")
+GenderPayGapPlot(data, pay = "salary_standardized", by = "office")
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$office == "Office 1", ])
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$office == "Office 1", ])
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$office == "Office 2", ])
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$office == "Office 3", ])
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$office == "Office 4", ])
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$office == "Office 5", ])
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$office == "Office 6", ], exact = FALSE)
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$office == "Office 9", ])
+```
+
+#### Gender salary gap by contractual
+```{r}
+GenderPayGapTable(data, pay = "salary_standardized", by = "contractual")
+GenderPayGapPlot(data, pay = "salary_standardized", by = "contractual")
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$contractual == "Full-time", ])
+```
+
+```{r}
+wilcox.test(salary_standardized ~ gender, data[data$contractual == "Part-time", ])
+```
+
+#### Tenure and salary by gender
+```{r message=FALSE, warning=FALSE}
+data %>%
+  ggplot(aes(x= tenure, y= salary_standardized, color= gender)) + 
+        geom_point()+
+        geom_smooth(method=lm) +
+        theme_classic() +
+        ggtitle("Salary and tenure by gender")
+```
+
+#### Regression
+```{r}
+summary(lm(salary_standardized ~ gender + qualification + position + office + tenure + contractual, data = data))
+```
+
+### 3.2 Gender bonus gap
+#### Bonus by gender
+```{r}
+data %>% 
+    group_by(gender) %>% 
+    summarise(n = n(),
+              min = min(bonus_standardized),
+              mean = mean(bonus_standardized), 
+              median = median(bonus_standardized), 
+              max = max(bonus_standardized), 
+              .groups = 'drop') %>%
+    kbl() %>% kable_paper("hover", full_width = F)
+```
+```{r}
+ggplot(data, aes(x= bonus_standardized, fill=gender)) + 
+    geom_boxplot() + ggtitle(paste("Bonus by gender")) +
+    theme(axis.title.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank())
+```
+
+```{r}
+data %>%
+  ggplot(aes(x=bonus_standardized, fill=gender)) +
+  geom_density(alpha=0.6) +
+  geom_vline(data= ddply(data, "gender", summarise, grp.mean=mean(bonus_standardized)), aes(xintercept=grp.mean, color=gender),
+             linetype="dashed") +
+  ggtitle("Distribution of Bonus by Gender") +
+  theme_classic()
+```
+
+```{r}
+wilcox.test(data$bonus_standardized ~ gender, data)
+```
+
+#### Gender bonus gap by qualification
+```{r}
+GenderPayGapTable(data, pay = "bonus_standardized", by = "qualification")
+GenderPayGapPlot(data, pay = "bonus_standardized", by = "qualification")
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$qualification == "Apprenticeship/ some college", ])
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$qualification == "BA/ BSc", ])
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$qualification == "MA/ MSc", ], exact = FALSE)
+```
+
+#### Gender bonus gap by position
+```{r}
+GenderPayGapTable(data, pay = "bonus_standardized", by = "position")
+GenderPayGapPlot(data, pay = "bonus_standardized", by = "position")
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$position == "Junior", ])
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$position == "Senior", ], exact = FALSE)
+```
+
+#### Gender bonus gap by office
+```{r}
+GenderPayGapTable(data, pay = "bonus_standardized", by = "office")
+GenderPayGapPlot(data, pay = "bonus_standardized", by = "office")
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$office == "Office 1", ])
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$office == "Office 1", ])
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$office == "Office 2", ])
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$office == "Office 3", ])
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$office == "Office 4", ])
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$office == "Office 5", ])
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$office == "Office 6", ], exact = FALSE)
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$office == "Office 9", ])
+```
+
+#### Gender bonus gap by contractual
+```{r}
+GenderPayGapTable(data, pay = "bonus_standardized", by = "contractual")
+GenderPayGapPlot(data, pay = "bonus_standardized", by = "contractual")
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$contractual == "Full-time", ])
+```
+
+```{r}
+wilcox.test(bonus_standardized ~ gender, data[data$contractual == "Part-time", ])
+```
+
+#### Tenure and bonus by gender
+```{r message=FALSE, warning=FALSE}
+data %>%
+  ggplot(aes(x= tenure, y= bonus_standardized, color= gender)) + 
+        geom_point()+
+        geom_smooth(method=lm) +
+        theme_classic() +
+        ggtitle("Bonus and tenure by gender")
+```
+
+#### Regression
+```{r}
+summary(lm(bonus_standardized ~ gender + qualification + position + office + tenure + contractual, data = data))
+```
+
+
+
+
+
+
+
+
+
